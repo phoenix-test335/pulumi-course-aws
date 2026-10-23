@@ -1,12 +1,24 @@
-name: Create and Deploy Infrastructure with Pulumi
+name: Create, Deploy and Destroy Infrastructure with Pulumi
 
 on:
   push:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  
+  # Permite ejecutar acciones manuales desde la pestaña Actions de GitHub
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Elige la acción a ejecutar en AWS'
+        required: true
+        default: 'deploy'
+        type: choice
+        options:
+          - deploy
+          - destroy
 
-# Permisos necesarios (se mantienen por compatibilidad)
+# Permisos necesarios para OIDC (mantenidos por compatibilidad)
 permissions:
   id-token: write
   contents: read
@@ -52,7 +64,7 @@ jobs:
           source venv/bin/activate
           python -m compileall .
 
-      # 5. Probar la infraestructura con Pulumi Preview
+      # 5. Probar la infraestructura con Pulumi Preview (Automático, solo muestra cambios)
       - name: Pulumi Preview
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
@@ -63,10 +75,10 @@ jobs:
 
   deploy:
     needs: validate-and-preview
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy')
     runs-on: ubuntu-latest
     
-    # --- AQUÍ CONFIGURAMOS LA APROBACIÓN MANUAL ---
+    # 🛑 ESTO OBLIGA A QUE PIDA APROBACIÓN MANUAL ANTES DE CREAR/ACTUALIZAR
     environment: production-approval
 
     steps:
@@ -96,7 +108,7 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      # 6. Despliegue real en AWS con Pulumi Up
+      # 6. Despliegue real en AWS con Pulumi Up (Solo corre tras tu aprobación)
       - name: Pulumi Up (Deploy)
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
@@ -104,3 +116,47 @@ jobs:
           source venv/bin/activate
           pulumi stack select dev --create || pulumi stack init dev
           pulumi up --yes --non-interactive
+
+  destroy:
+    needs: validate-and-preview
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+    runs-on: ubuntu-latest
+    
+    # 🛑 ESTO TAMBIÉN OBLIGA A QUE PIDA APROBACIÓN MANUAL ANTES DE DESTRUIR
+    environment: production-approval
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Install Pulumi CLI
+        uses: pulumi/action-install-pulumi-cli@v2
+
+      - name: Install dependencies
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      # 7. Destrucción de la infraestructura en AWS (Solo corre tras tu aprobación)
+      - name: Pulumi Destroy
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          source venv/bin/activate
+          pulumi stack select dev --create || pulumi stack init dev
+          pulumi destroy --yes --non-interactive
