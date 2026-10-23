@@ -6,7 +6,6 @@ on:
   pull_request:
     branches: [ "main" ]
   
-  # Permite ejecutar acciones manuales desde la pestaña Actions de GitHub
   workflow_dispatch:
     inputs:
       action:
@@ -18,7 +17,6 @@ on:
           - deploy
           - destroy
 
-# Permisos necesarios para OIDC (mantenidos por compatibilidad)
 permissions:
   id-token: write
   contents: read
@@ -37,7 +35,6 @@ jobs:
           python-version: '3.13'
           cache: 'pip'
 
-      # 1. Autenticación con AWS usando credenciales estáticas
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -45,11 +42,9 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      # 2. Instalar la CLI de Pulumi
       - name: Install Pulumi CLI
         uses: pulumi/action-install-pulumi-cli@v2
 
-      # 3. Instalar dependencias de Python
       - name: Install dependencies
         run: |
           python -m venv venv
@@ -58,13 +53,11 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install pytest
 
-      # 4. Ejecutar pruebas unitarias
       - name: Run unit tests
         run: |
           source venv/bin/activate
           python -m compileall .
 
-      # 5. Probar la infraestructura con Pulumi Preview (Automático, solo muestra cambios)
       - name: Pulumi Preview
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
@@ -75,10 +68,11 @@ jobs:
 
   deploy:
     needs: validate-and-preview
+    # Se ejecuta en push a main O si eliges 'deploy' manualmente
     if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy')
     runs-on: ubuntu-latest
     
-    # 🛑 ESTO OBLIGA A QUE PIDA APROBACIÓN MANUAL ANTES DE CREAR/ACTUALIZAR
+    # 🛑 OBLIGA APROBACIÓN MANUAL PARA DESPLEGAR
     environment: production-approval
 
     steps:
@@ -108,7 +102,6 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      # 6. Despliegue real en AWS con Pulumi Up (Solo corre tras tu aprobación)
       - name: Pulumi Up (Deploy)
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
@@ -119,10 +112,11 @@ jobs:
 
   destroy:
     needs: validate-and-preview
+    # Solo se ejecuta si seleccionas explícitamente 'destroy' en el menú manual
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
     runs-on: ubuntu-latest
     
-    # 🛑 ESTO TAMBIÉN OBLIGA A QUE PIDA APROBACIÓN MANUAL ANTES DE DESTRUIR
+    # 🛑 OBLIGA APROBACIÓN MANUAL PARA DESTRUIR
     environment: production-approval
 
     steps:
@@ -152,7 +146,6 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      # 7. Destrucción de la infraestructura en AWS (Solo corre tras tu aprobación)
       - name: Pulumi Destroy
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
