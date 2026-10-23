@@ -1,0 +1,65 @@
+name: Test & Pulumi Preview
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+# Permisos necesarios para autenticación OIDC con AWS
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  validate-and-preview:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      # 1. Autenticación con AWS (necesaria para que 'pulumi preview' consulte el estado de la nube)
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::292763666934:role/GitHubActionsRole
+          aws-region: us-east-1
+
+      # 2. Instalar la CLI de Pulumi
+      - name: Install Pulumi CLI
+        uses: pulumi/action-install-pulumi-cli@v2
+
+      # 3. Instalar dependencias de Python
+      - name: Install dependencies
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest
+
+      # 4. Ejecutar pruebas unitarias (si las hay)
+      - name: Run unit tests
+        run: |
+          source venv/bin/activate
+          # pytest || echo "No pytest found, skipping..."
+          python -m compileall .
+
+      # 5. Probar la infraestructura con Pulumi Preview
+      - name: Pulumi Preview
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          source venv/bin/activate
+          # Selecciona el stack de prueba/desarrollo (lo crea si no existe)
+          pulumi stack select dev --create || pulumi stack init dev
+          
+          # Ejecuta la vista previa (no aplica cambios reales en AWS)
+          pulumi preview --non-interactive

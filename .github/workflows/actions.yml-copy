@@ -1,0 +1,60 @@
+name: Pulumi AWS Python CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# Permisos necesarios para autenticación OIDC con AWS
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Pulumi Preview & Up
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      # 1. Autenticación segura en AWS usando OIDC (sin claves estáticas)
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::292763666934:role/GitHubActionsRole
+          aws-region: us-east-1 # Cambia a tu región de AWS
+
+      # 2. Instalar la CLI oficial de Pulumi
+      - name: Install Pulumi CLI
+        uses: pulumi/action-install-pulumi-cli@v2
+
+      # 3. Crear entorno virtual e instalar dependencias de Python
+      - name: Install Dependencies
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 4. Seleccionar o inicializar el Stack de Pulumi y desplegar
+      - name: Run Pulumi Preview
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }} # Token de tu cuenta de Pulumi (si usas Pulumi Service)
+        run: |
+          source venv/bin/activate
+          # Selecciona tu stack (ej. 'dev' o 'prod'). Si no existe, lo crea automáticamente.
+          pulumi stack select xluisrivas-gmail-com-org/iac-udemy-course/udemy --create || pulumi stack init  xluisrivas-gmail-com-org/iac-udemy-course/udemy
+          
+          # Si es un Pull Request, puedes cambiar 'up' por 'preview' si prefieres validar antes
+          pulumi preview 
